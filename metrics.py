@@ -1,3 +1,8 @@
+"""Configure and calculate metrics.
+
+# Analogous to MTR waymo_eval.py
+"""
+
 import tensorflow as tf
 
 from google.protobuf import text_format
@@ -8,31 +13,33 @@ from waymo_open_dataset.protos import motion_metrics_pb2
 def default_metrics_config():
     config = motion_metrics_pb2.MotionMetricsConfig()
     config_text = """
-track_steps_per_second: 10
-prediction_steps_per_second: 2
-track_history_samples: 10
-track_future_samples: 80
-speed_lower_bound: 1.4
-speed_upper_bound: 11.0
-speed_scale_lower: 0.5
-speed_scale_upper: 1.0
-step_configurations {
-    measurement_step: 5
-    lateral_miss_threshold: 1.0
-    longitudinal_miss_threshold: 2.0
-}
-step_configurations {
-    measurement_step: 9
-    lateral_miss_threshold: 1.8
-    longitudinal_miss_threshold: 3.6
-}
-step_configurations {
-    measurement_step: 15
-    lateral_miss_threshold: 3.0
-    longitudinal_miss_threshold: 6.0
-}
-max_predictions: 6
-"""
+    track_steps_per_second: 10
+    prediction_steps_per_second: 2
+    track_history_samples: 10
+    speed_lower_bound: 1.4
+    speed_upper_bound: 11.0
+    speed_scale_lower: 0.5
+    speed_scale_upper: 1.0"""
+    config_text += """
+    track_future_samples: 80
+    """
+    config_text += """step_configurations {
+        measurement_step: 5
+        lateral_miss_threshold: 1.0
+        longitudinal_miss_threshold: 2.0
+    }
+    step_configurations {
+        measurement_step: 9
+        lateral_miss_threshold: 1.8
+        longitudinal_miss_threshold: 3.6
+    }
+    step_configurations {
+        measurement_step: 15
+        lateral_miss_threshold: 3.0
+        longitudinal_miss_threshold: 6.0
+    }
+    max_predictions: 6
+    """
     text_format.Parse(config_text, config)
     return config
 

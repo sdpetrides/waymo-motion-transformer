@@ -160,6 +160,94 @@ features_description.update(state_features)
 features_description.update(traffic_light_features)
 
 
+def parse_example_masked(example):
+    """Parse an example and mask some inputs for training.
+
+    Currently, only use the object states.
+    """
+    decoded_example = tf.io.parse_single_example(example, features_description)
+
+    past_states = tf.stack(
+        [
+            decoded_example["state/past/x"],
+            decoded_example["state/past/y"],
+            decoded_example["state/past/length"],
+            decoded_example["state/past/width"],
+            decoded_example["state/past/bbox_yaw"],
+            decoded_example["state/past/velocity_x"],
+            decoded_example["state/past/velocity_y"],
+        ],
+        -1,
+    )
+    cur_states = tf.stack(
+        [
+            decoded_example["state/current/x"],
+            decoded_example["state/current/y"],
+            decoded_example["state/current/length"],
+            decoded_example["state/current/width"],
+            decoded_example["state/current/bbox_yaw"],
+            decoded_example["state/current/velocity_x"],
+            decoded_example["state/current/velocity_y"],
+        ],
+        -1,
+    )
+    future_states = tf.stack(
+        [
+            decoded_example["state/future/x"],
+            decoded_example["state/future/y"],
+            decoded_example["state/future/length"],
+            decoded_example["state/future/width"],
+            decoded_example["state/future/bbox_yaw"],
+            decoded_example["state/future/velocity_x"],
+            decoded_example["state/future/velocity_y"],
+        ],
+        -1,
+    )
+
+    gt_future_states = tf.concat([past_states, cur_states, future_states], 1)
+
+    # Mask out (just zero out for now, maybe random noise later on)
+    slice_axis = 1
+    slice_index = tf.random.uniform(
+        (), maxval=gt_future_states.shape[slice_axis], dtype=tf.int32
+    )
+    slice_index = tf.squeeze(slice_index)
+
+    mask = tf.one_hot(
+        slice_index,
+        depth=gt_future_states.shape[slice_axis],
+        on_value=0.0,
+        off_value=1.0,
+    )
+    # with tf.compat.v1.Session() as sess:
+    #     print(sess.run(slice_index))
+    #     print(mask.shape)
+    all_states_masked = gt_future_states * tf.expand_dims(mask, axis=slice_axis)
+
+    # Get state validity
+    past_is_valid = decoded_example["state/past/valid"] > 0
+    current_is_valid = decoded_example["state/current/valid"] > 0
+    future_is_valid = decoded_example["state/future/valid"] > 0
+    gt_future_is_valid = tf.concat(
+        [past_is_valid, current_is_valid, future_is_valid], 1
+    )
+
+    # If a sample was not seen at all in the past, we declare the sample as
+    # invalid.
+    sample_is_valid = tf.reduce_any(tf.concat([past_is_valid, current_is_valid], 1), 1)
+
+    inputs = {
+        "all_states_masked": all_states_masked,  # (128, 91, 7)
+        "sample_is_valid": sample_is_valid,  # (128,)
+        "gt_future_states": gt_future_states,  # (128, 91, 7)
+        "gt_future_is_valid": gt_future_is_valid,  # (128, 91)
+        "object_type": decoded_example["state/type"],  # (128,)
+        "tracks_to_predict": decoded_example["state/tracks_to_predict"] > 0,  # (128,)
+        "masked_index": slice_index,
+    }
+    return inputs
+
+
 def parse_dataset(value):
     decoded_example = tf.io.parse_single_example(value, features_description)
 

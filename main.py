@@ -7,22 +7,24 @@ import tensorflow as tf
 from waymo_open_dataset.metrics.python import config_util_py as config_util
 
 
-from data import load_dataset, parse_dataset
-from model import SimpleModel
+from data.dataset import load_dataset, parse_dataset, parse_example_masked
+from models.steve import SteveModel
 from metrics import default_metrics_config, MotionMetrics
 from train import train_step
 
 
 def main():
     dataset = load_dataset(tfrecords=2)
-    model = SimpleModel(128, 11, 80)
+    model = SteveModel(
+        num_agents_per_scenario=128, num_state_steps=11, num_future_steps=80
+    )
     optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
     loss_fn = tf.keras.losses.MeanSquaredError()
     metrics_config = default_metrics_config()
     motion_metrics = MotionMetrics(metrics_config)
     metric_names = config_util.get_breakdown_names_from_motion_config(metrics_config)
 
-    dataset = dataset.map(parse_dataset)
+    dataset = dataset.map(parse_example_masked)
     dataset = dataset.batch(32)
 
     epochs = 2
@@ -49,13 +51,14 @@ def main():
             if step >= num_batches_per_epoch:
                 break
 
-        # Display metrics at the end of each epoch.
-        train_metric_values = motion_metrics.result()
-        for i, m in enumerate(
-            ["min_ade", "min_fde", "miss_rate", "overlap_rate", "map"]
-        ):
-            for j, n in enumerate(metric_names):
-                print("{}/{}: {}".format(m, n, train_metric_values[i, j]))
+        # TODO: Deal with metrics
+        # # Display metrics at the end of each epoch.
+        # train_metric_values = motion_metrics.result()
+        # for i, m in enumerate(
+        #     ["min_ade", "min_fde", "miss_rate", "overlap_rate", "map"]
+        # ):
+        #     for j, n in enumerate(metric_names):
+        #         print("{}/{}: {}".format(m, n, train_metric_values[i, j]))
 
 
 if __name__ == "__main__":

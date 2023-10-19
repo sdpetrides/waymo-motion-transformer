@@ -4,26 +4,29 @@ import tensorflow as tf
 def train_step(model, loss_fn, optimizer, inputs, metrics_config, motion_metrics):
     with tf.GradientTape() as tape:
         # [batch_size, num_agents, D]
-        states = inputs["input_states"]
+        states = inputs["all_states_masked"]
+        is_valid = inputs["gt_future_is_valid"]
+        slice_index = inputs["masked_index"]
 
-        # Predict. [batch_size, num_agents, steps, 2].
-        pred_trajectory = model(states, training=True)
+        # Predict. [batch_size, num_agents, V].
+        pred_trajectory = model(states, is_valid, training=True)
 
         # Set training target.
         prediction_start = metrics_config.track_history_samples + 1
 
-        # [batch_size, num_agents, steps, 7]
-        gt_trajectory = inputs["gt_future_states"]
-        gt_targets = gt_trajectory[..., prediction_start:, :2]
+        # [batch_size, num_agents, V]
+        gt_trajectory = tf.transpose(inputs["gt_future_states"], perm=[0, 2, 1, 3])
+        gt_targets = tf.gather(gt_trajectory, indices=slice_index, axis=1, batch_dims=1)
 
+        # TODO: deal with validity
         # [batch_size, num_agents, steps]
         gt_is_valid = inputs["gt_future_is_valid"]
-        # [batch_size, num_agents, steps]
-        weights = tf.cast(
-            inputs["gt_future_is_valid"][..., prediction_start:], tf.float32
-        ) * tf.cast(inputs["tracks_to_predict"][..., tf.newaxis], tf.float32)
+        # # [batch_size, num_agents, steps]
+        # weights = tf.cast(
+        #     inputs["gt_future_is_valid"][..., prediction_start:], tf.float32
+        # ) * tf.cast(inputs["tracks_to_predict"][..., tf.newaxis], tf.float32)
 
-        loss_value = loss_fn(gt_targets, pred_trajectory, sample_weight=weights)
+        loss_value = loss_fn(gt_targets, pred_trajectory)
     grads = tape.gradient(loss_value, model.trainable_weights)
     optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
@@ -51,14 +54,14 @@ def train_step(model, loss_fn, optimizer, inputs, metrics_config, motion_metrics
     # [batch_size, num_agents, 1].
     pred_gt_indices_mask = inputs["tracks_to_predict"][..., tf.newaxis]
 
-    motion_metrics.update_state(
-        pred_trajectory,
-        pred_score,
-        gt_trajectory,
-        gt_is_valid,
-        pred_gt_indices,
-        pred_gt_indices_mask,
-        object_type,
-    )
+    # motion_metrics.update_state(
+    #     pred_trajectory,
+    #     pred_score,
+    #     gt_trajectory,
+    #     gt_is_valid,
+    #     pred_gt_indices,
+    #     pred_gt_indices_mask,
+    #     object_type,
+    # )
 
     return loss_value
