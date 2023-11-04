@@ -30,6 +30,8 @@ def main():
     epochs = int(args.epochs)
     batch_size = int(args.batch_size)
     tf_records = int(args.tf_records)
+    if tf_records == 0 or tf_records > 1000:
+        tf_records = 1
 
     dataset = load_dataset(tfrecords=tf_records)
     model = NaiveModel(
