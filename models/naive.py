@@ -18,7 +18,6 @@ class NaiveModel(tf.keras.Model):
         self.scene_encoder = SceneEncoder(
             self._num_agents_per_scenario,
             self._num_state_steps - 1,  # past only
-            self._num_future_steps,
         )
         self.motion_decoder = MotionDecoder(
             self._num_agents_per_scenario,
@@ -55,8 +54,7 @@ class NaiveModel(tf.keras.Model):
             (future_states, tf.expand_dims(present, axis=1)), axis=1
         )
         for i in range(1, self._num_future_steps + 1):
-            print(f"Generating step {i}")
-            # print(f"Future states: {future_states.shape}")
+            # print(f"Generating step {i}")
             causal_mask = self.create_mask(B, self._num_future_steps, i)
             next_pred = self.motion_decoder.call(
                 future_states[:, :-1, :],  # never actually send in last future step
@@ -79,7 +77,7 @@ class NaiveModel(tf.keras.Model):
 
     @staticmethod
     def create_mask(batch_size, matrix_size, k):
-        if k < 1 or k >= matrix_size:
+        if k < 1 or k > matrix_size:
             raise ValueError(f"k should be within the [1, {matrix_size}] range")
         lower_diag = tf.linalg.band_part(
             tf.ones((batch_size, matrix_size, matrix_size), dtype=tf.bool), -1, 0

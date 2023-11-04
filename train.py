@@ -11,9 +11,6 @@ def train_step(model, loss_fn, optimizer, inputs, metrics_config, motion_metrics
         slice_index = inputs["masked_index"]
         all_states_gt = inputs["gt_future_states"]  # B, obj, T, V
 
-        # TODO: extract masked gt step
-        gt_step = None
-
         model_inputs = model.encode(states, is_valid)  # B, T, H
         states_gt = model.encode(all_states_gt, is_valid)  # B, T, H
 
@@ -21,7 +18,6 @@ def train_step(model, loss_fn, optimizer, inputs, metrics_config, motion_metrics
 
         # Predict 80 steps
         model_outputs = model(model_inputs, training=True)
-        print(f"model_outputs: {model_outputs.shape}")
 
         loss_value = 0
         for i in [2, 8, 32, 80]:
@@ -50,11 +46,7 @@ def train_step(model, loss_fn, optimizer, inputs, metrics_config, motion_metrics
         # ) * tf.cast(inputs["tracks_to_predict"][..., tf.newaxis], tf.float32)
 
     grads = tape.gradient(loss_value, model.trainable_weights)
-    for _ in grads:
-        if not _:
-            print("Some of the grads are None")
-            break
-    # optimizer.apply_gradients(zip(grads, model.trainable_weights))
+    optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
     # TODO: deal with metrics and trajectories
 

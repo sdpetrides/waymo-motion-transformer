@@ -9,7 +9,7 @@ class SceneEncoder(tf.keras.layers.Layer):
     and outputs some latent embedding of the scene.
     """
 
-    def __init__(self, num_agents_per_scenario, num_state_steps, num_future_steps):
+    def __init__(self, num_agents_per_scenario, num_state_steps):
         super(SceneEncoder, self).__init__()
         self.N = 2  # number of encoder blocks
         self._num_agents_per_scenario = num_agents_per_scenario
@@ -43,7 +43,7 @@ class SceneEncoder(tf.keras.layers.Layer):
         # Input Embedding
         x = self.dense(inputs)  # B, T, 768
         # Positional Encoding
-        x = self.positional_encoder(x)
+        x += self.positional_encoder(x)
         # Encoder blocks
         for i in range(self.N):
             # Expand to q, k, v

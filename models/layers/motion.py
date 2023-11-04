@@ -70,7 +70,7 @@ class MotionDecoder(tf.keras.layers.Layer):
         # Input embedding
         x = self.dense1(inputs)  # B, T, 1024 -> B, T, 768
         # Positional Encoding
-        x = self.positional_encoder(x)
+        x += self.positional_encoder(x)
         for i in range(self.N):
             # Expand to q, k, v
             qkv = self.qkv_expander(x)  # B, T, 768 * 3

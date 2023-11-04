@@ -1,8 +1,12 @@
 import os
 import time
+import argparse
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
 import tensorflow as tf
+
+print("GPUs Available: ", tf.config.list_physical_devices("GPU"))
+print("Num GPUs Available: ", len(tf.config.list_physical_devices("GPU")))
 
 from waymo_open_dataset.metrics.python import config_util_py as config_util
 
@@ -14,22 +18,31 @@ from train import train_step
 
 
 def main():
-    dataset = load_dataset(tfrecords=2)
+    parser = argparse.ArgumentParser(description="")
+    parser.add_argument(
+        "-e", "--epochs", help="Number of epochs (default: 2)", default=2
+    )
+    parser.add_argument("-b", "--batch_size", help="Batch size (default: 2)", default=2)
+    parser.add_argument(
+        "-r", "--tf_records", help="Number of TFRecords to use (default: 2)", default=2
+    )
+    args = parser.parse_args()
+    epochs = int(args.epochs)
+    batch_size = int(args.batch_size)
+    tf_records = int(args.tf_records)
+
+    dataset = load_dataset(tfrecords=tf_records)
     model = NaiveModel(
         num_agents_per_scenario=128, num_state_steps=11, num_future_steps=80
     )
-    optimizer = tf.keras.optimizers.Adam(learning_rate=1e-3)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=3e-2)
     loss_fn = tf.keras.losses.MeanSquaredError()
     metrics_config = default_metrics_config()
     motion_metrics = MotionMetrics(metrics_config)
     metric_names = config_util.get_breakdown_names_from_motion_config(metrics_config)
 
-    batch_size = 32
     dataset = dataset.map(parse_example_masked)
     dataset = dataset.batch(batch_size)
-
-    epochs = 2
-    num_batches_per_epoch = 10
 
     for epoch in range(epochs):
         print(f"Start of epoch {epoch}")
@@ -37,21 +50,20 @@ def main():
         # start_time = time.time()
 
         # Iterate over the batches of the dataset.
+        losses = []
         for step, batch in enumerate(dataset):
             loss_value = train_step(
                 model, loss_fn, optimizer, batch, metrics_config, motion_metrics
             )
 
             # Log every 10 batches.
-            if step % 10 == 0:
+            losses.append(loss_value)
+            if step % 10 == 9:
                 print(
-                    "Training loss (for one batch) at step %d: %.4f"
-                    % (step, float(loss_value))
+                    "Avg Training loss for last 10 steps %4d: %12.3f"
+                    % (step + 1, float(sum(losses[-10:]) / 10))
                 )
-                print("Seen so far: %d samples" % ((step + 1) * batch_size))
-
-            if step >= num_batches_per_epoch:
-                break
+                # print("Seen so far: %d samples" % ((step + 1) * batch_size))
 
         # TODO: Deal with metrics
         # Display metrics at the end of each epoch.
