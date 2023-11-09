@@ -1,26 +1,22 @@
 import tensorflow as tf
 
-# TODO: some kind of masked training
-
 
 def train_step(model, loss_fn, optimizer, inputs, metrics_config, motion_metrics):
     """"""
     with tf.GradientTape() as tape:
-        states = inputs["all_states_masked"]  # B, obj, T, V
-        is_valid = inputs["gt_future_is_valid"]
-        slice_index = inputs["masked_index"]
-        all_states_gt = inputs["gt_future_states"]  # B, obj, T, V
+        road_graph = inputs["road_graph"]  # B, T, V_rg
+        states = inputs["gt_future_states"]  # B, obj, T, V_obj
 
-        model_inputs = model.encode(states, is_valid)  # B, T, H
-        states_gt = model.encode(all_states_gt, is_valid)  # B, T, H
+        # Swap T and obj dims, merge with V to get H
+        states_gt = model.encode(states)  # B, T, H
 
-        model_inputs = model_inputs[:, :11, :]  # only use past and present
+        model_inputs = states_gt[:, :11, :]  # only use past and present
 
         # Predict 80 steps
-        model_outputs = model(model_inputs, training=True)
+        model_outputs = model(model_inputs, road_graph, training=True)
 
         loss_value = 0
-        for i in [2, 8, 32, 80]:
+        for i in [2, 4, 8, 16, 32]:
             gt_state = states_gt[:, 11 + i - 1, :]
             pred_state = model_outputs[:, i, :]
             latent_loss_pred = model.latent_loss_layer(pred_state)

@@ -11,7 +11,7 @@ print("Num GPUs Available: ", len(tf.config.list_physical_devices("GPU")))
 from waymo_open_dataset.metrics.python import config_util_py as config_util
 
 
-from data.dataset import load_dataset, parse_dataset, parse_example_masked
+from data.dataset import load_dataset, parse_example
 from models.naive import NaiveModel
 from metrics import default_metrics_config, MotionMetrics
 from train import train_step
@@ -37,13 +37,13 @@ def main():
     model = NaiveModel(
         num_agents_per_scenario=128, num_state_steps=11, num_future_steps=80
     )
-    optimizer = tf.keras.optimizers.Adam(learning_rate=3e-2)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=2e-4)
     loss_fn = tf.keras.losses.MeanSquaredError()
     metrics_config = default_metrics_config()
     motion_metrics = MotionMetrics(metrics_config)
     metric_names = config_util.get_breakdown_names_from_motion_config(metrics_config)
 
-    dataset = dataset.map(parse_example_masked)
+    dataset = dataset.map(parse_example)
     dataset = dataset.batch(batch_size)
 
     for epoch in range(epochs):
@@ -57,6 +57,7 @@ def main():
             loss_value = train_step(
                 model, loss_fn, optimizer, batch, metrics_config, motion_metrics
             )
+            print(step, loss_value)
 
             # Log every 10 batches.
             losses.append(loss_value)
@@ -67,14 +68,14 @@ def main():
                 )
                 # print("Seen so far: %d samples" % ((step + 1) * batch_size))
 
-        # TODO: Deal with metrics
-        # Display metrics at the end of each epoch.
-        train_metric_values = motion_metrics.result()
-        for i, m in enumerate(
-            ["min_ade", "min_fde", "miss_rate", "overlap_rate", "map"]
-        ):
-            for j, n in enumerate(metric_names):
-                print("{}/{}: {}".format(m, n, train_metric_values[i, j]))
+        # # TODO: Deal with metrics
+        # # Display metrics at the end of each epoch.
+        # train_metric_values = motion_metrics.result()
+        # for i, m in enumerate(
+        #     ["min_ade", "min_fde", "miss_rate", "overlap_rate", "map"]
+        # ):
+        #     for j, n in enumerate(metric_names):
+        #         print("{}/{}: {}".format(m, n, train_metric_values[i, j]))
 
 
 if __name__ == "__main__":

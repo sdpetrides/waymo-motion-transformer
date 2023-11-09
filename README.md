@@ -24,8 +24,10 @@ Results
 - Can handle mini-batch size of 6 on a T4 GPU.
 
 Possible Directions
-- Introduce Performer to speed up training.
-- Add other modalities
+- 1. Include past states into decoder (81 => 91)
+- 2. Add other modalities
+- 3. Introduce Performer to speed up training.
+- Move to a Gaussian trajectory decoder
 
 ## Links
 

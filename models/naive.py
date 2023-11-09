@@ -30,23 +30,21 @@ class NaiveModel(tf.keras.Model):
             trainable=False,
         )
 
-    def call(self, inputs):
+    def call(self, obj_inputs, road_graph):
         """Forward pass of model.
 
-        B is batch dim, Obj is object dim, T is temporal dim.
+        B is batch dim, T is temporal dim, H is the hidden dim.
         """
-        B, T, H = inputs.shape
+        B, T, H = obj_inputs.shape
 
-        scene_input = inputs[:, :10, :]  # only use past, not present for now
-
-        # Positional Encoding
-        scene_input = self.scene_encoder.positional_encoder(scene_input)
+        obj_inputs = obj_inputs[:, :10, :]  # only use past, not present for now
+        road_graph = road_graph[:, ::50, :]  # sample every 50 points
 
         # Scene Encoder
-        scene_ouput = self.scene_encoder.call(scene_input)
+        scene_ouput = self.scene_encoder.call(obj_inputs, road_graph)
 
         # Decoder Layers (auto-regressive)
-        present = inputs[:, -1, :]
+        present = obj_inputs[:, -1, :]
         future_states = tf.ones(
             (present.shape[0], self._num_future_steps, present.shape[-1])
         )
@@ -72,8 +70,8 @@ class NaiveModel(tf.keras.Model):
 
         return future_states
 
-    def encode(self, states, is_valid):
-        return self.scene_encoder.pre_encoder(states, is_valid)
+    def encode(self, states):
+        return self.scene_encoder.pre_encoder(states)
 
     @staticmethod
     def create_mask(batch_size, matrix_size, k):
