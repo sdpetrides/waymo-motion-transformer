@@ -23,11 +23,19 @@ Results
 - Each mini-batch takes a few seconds to run.
 - Can handle mini-batch size of 6 on a T4 GPU.
 
-Possible Directions
+Recent Updates
 - 1. Include past states into decoder (81 => 91)
-- 2. Add other modalities
+- 2. Add other modalities (road graph)
 - 3. Introduce Performer to speed up training.
-- Move to a Gaussian trajectory decoder
+    - need to get masked training to work
+
+Possible Directions
+- 1. Change the way that the road graph is used
+    - don't flatten and concat
+    - give its own encoder to be used for cross-attention with agents
+- 2. Add other modality (traffic light)
+- 3. Switch to trajectory-based loss function
+- 4. Use number of agents as sequence and time as hidden dim
 
 ## Links
 

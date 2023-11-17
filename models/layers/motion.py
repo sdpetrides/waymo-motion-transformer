@@ -1,15 +1,26 @@
 import tensorflow as tf
 import keras_nlp
 
+from .fast_attention import Attention as FastAttention
+
 
 class MotionDecoder(tf.keras.layers.Layer):
     """Motion decoder takes an timeslice and cross-attends
     with observed scene and predicts the next timeslice.
     """
 
-    def __init__(self, num_agents_per_scenario, num_state_steps, num_future_steps):
+    def __init__(
+        self,
+        num_agents_per_scenario,
+        num_state_steps,
+        num_future_steps,
+        use_performers=True,
+        training=True,
+    ):
         super(MotionDecoder, self).__init__()
-        self.N = 2  # number of decoder blocks
+        self.N = 3  # number of decoder blocks
+        self.use_performers = use_performers
+        self.training = training
         self._num_agents_per_scenario = num_agents_per_scenario
         self._num_state_steps = num_state_steps
         self._num_future_steps = num_future_steps
@@ -40,17 +51,26 @@ class MotionDecoder(tf.keras.layers.Layer):
                     attention_axes=None,  # was getting expand_dim error so switched back to None
                 )
             )
-            self.cross_attn_blocks.append(
-                tf.keras.layers.MultiHeadAttention(
-                    12,
-                    key_dim=64,
-                    value_dim=64,
-                    dropout=0.0,
-                    use_bias=True,
-                    output_shape=None,
-                    attention_axes=(1, 2),
+            if self.use_performers:
+                self.cross_attn_blocks.append(
+                    FastAttention(
+                        hidden_size=768,
+                        num_heads=12,
+                        attention_dropout=0.2,
+                    )
                 )
-            )
+            else:
+                self.cross_attn_blocks.append(
+                    tf.keras.layers.MultiHeadAttention(
+                        12,
+                        key_dim=64,
+                        value_dim=64,
+                        dropout=0.0,
+                        use_bias=True,
+                        output_shape=None,
+                        attention_axes=(1, 2),
+                    )
+                )
             self.layer_norm_block_1.append(tf.keras.layers.LayerNormalization(axis=-1))
             self.layer_norm_block_2.append(tf.keras.layers.LayerNormalization(axis=-1))
             self.layer_norm_block_3.append(tf.keras.layers.LayerNormalization(axis=-1))
@@ -83,7 +103,12 @@ class MotionDecoder(tf.keras.layers.Layer):
             q = self.layer_norm_block_1[i](attn_output_1 + x)
             # Multi-Head Cross-Attention
             k, v = scene_output, scene_output
-            attn_output_2 = self.cross_attn_blocks[i](q, v, k)
+            if self.use_performers:
+                attn_output_2 = self.cross_attn_blocks[i](
+                    q, k, bias=None, training=self.training
+                )
+            else:
+                attn_output_2 = self.cross_attn_blocks[i](q, v, k)
             # Add & Norm (second time)
             norm_output = self.layer_norm_block_2[i](attn_output_2 + x)
             # Feed Forward
@@ -94,6 +119,3 @@ class MotionDecoder(tf.keras.layers.Layer):
         x = tf.reshape(x, (x.shape[0], x.shape[1] * x.shape[2]))
         x = self.dense2(x)  # B, 80 * 192 -> B, T, 1024
         return x
-
-    def positional_encoder(self, input):
-        return input

@@ -159,101 +159,110 @@ features_description.update(state_features)
 features_description.update(traffic_light_features)
 
 
-def parse_example(example):
-    """Parse an example.
+def parser_factory(use_center=True):
+    def parse_example(example):
+        """Parse an example.
 
-    Inputs:
-     - object states
-     - road graph
-    """
-    decoded_example = tf.io.parse_single_example(example, features_description)
+        Inputs:
+        - object states
+        - road graph
+        """
+        decoded_example = tf.io.parse_single_example(example, features_description)
 
-    center_idx = tf.math.argmax(decoded_example["state/is_sdc"])
-    center = tf.concat(
-        [
-            decoded_example["state/current/x"][center_idx],
-            decoded_example["state/current/y"][center_idx],
-            tf.zeros(1),
-        ],
-        axis=0,
-    )
+        center_idx = tf.math.argmax(decoded_example["state/is_sdc"])
+        if use_center:
+            center = tf.concat(
+                [
+                    decoded_example["state/current/x"][center_idx],
+                    decoded_example["state/current/y"][center_idx],
+                    tf.zeros(1),
+                ],
+                axis=0,
+            )
+        else:
+            center = tf.zeros((3,))
+        print(use_center, center)
 
-    # Agent states
-    past_states = tf.stack(
-        [
-            decoded_example["state/past/x"] - center[0],
-            decoded_example["state/past/y"] - center[1],
-            decoded_example["state/past/length"],
-            decoded_example["state/past/width"],
-            decoded_example["state/past/bbox_yaw"],
-            decoded_example["state/past/velocity_x"],
-            decoded_example["state/past/velocity_y"],
-            tf.cast(decoded_example["state/past/valid"], tf.float32),
-        ],
-        -1,
-    )
-    cur_states = tf.stack(
-        [
-            decoded_example["state/current/x"] - center[0],
-            decoded_example["state/current/y"] - center[1],
-            decoded_example["state/current/length"],
-            decoded_example["state/current/width"],
-            decoded_example["state/current/bbox_yaw"],
-            decoded_example["state/current/velocity_x"],
-            decoded_example["state/current/velocity_y"],
-            tf.cast(decoded_example["state/current/valid"], tf.float32),
-        ],
-        -1,
-    )
-    future_states = tf.stack(
-        [
-            decoded_example["state/future/x"] - center[0],
-            decoded_example["state/future/y"] - center[1],
-            decoded_example["state/future/length"],
-            decoded_example["state/future/width"],
-            decoded_example["state/future/bbox_yaw"],
-            decoded_example["state/future/velocity_x"],
-            decoded_example["state/future/velocity_y"],
-            tf.cast(decoded_example["state/future/valid"], tf.float32),
-        ],
-        -1,
-    )
+        # Agent states
+        past_states = tf.stack(
+            [
+                decoded_example["state/past/x"] - center[0],
+                decoded_example["state/past/y"] - center[1],
+                decoded_example["state/past/length"],
+                decoded_example["state/past/width"],
+                decoded_example["state/past/bbox_yaw"],
+                decoded_example["state/past/velocity_x"],
+                decoded_example["state/past/velocity_y"],
+                tf.cast(decoded_example["state/past/valid"], tf.float32),
+            ],
+            -1,
+        )
+        cur_states = tf.stack(
+            [
+                decoded_example["state/current/x"] - center[0],
+                decoded_example["state/current/y"] - center[1],
+                decoded_example["state/current/length"],
+                decoded_example["state/current/width"],
+                decoded_example["state/current/bbox_yaw"],
+                decoded_example["state/current/velocity_x"],
+                decoded_example["state/current/velocity_y"],
+                tf.cast(decoded_example["state/current/valid"], tf.float32),
+            ],
+            -1,
+        )
+        future_states = tf.stack(
+            [
+                decoded_example["state/future/x"] - center[0],
+                decoded_example["state/future/y"] - center[1],
+                decoded_example["state/future/length"],
+                decoded_example["state/future/width"],
+                decoded_example["state/future/bbox_yaw"],
+                decoded_example["state/future/velocity_x"],
+                decoded_example["state/future/velocity_y"],
+                tf.cast(decoded_example["state/future/valid"], tf.float32),
+            ],
+            -1,
+        )
 
-    # Road Graph
-    road_graph = tf.concat(
-        [
-            decoded_example["roadgraph_samples/xyz"] - center,
-            decoded_example["roadgraph_samples/xyz"],
-            decoded_example["roadgraph_samples/dir"],
-            tf.cast(decoded_example["roadgraph_samples/type"], dtype=tf.float32),
-            tf.cast(decoded_example["roadgraph_samples/valid"], dtype=tf.float32),
-        ],
-        axis=1,
-    )
+        # Road Graph
+        road_graph = tf.concat(
+            [
+                decoded_example["roadgraph_samples/xyz"] - center,
+                decoded_example["roadgraph_samples/xyz"],
+                decoded_example["roadgraph_samples/dir"],
+                tf.cast(decoded_example["roadgraph_samples/type"], dtype=tf.float32),
+                tf.cast(decoded_example["roadgraph_samples/valid"], dtype=tf.float32),
+            ],
+            axis=1,
+        )
 
-    gt_future_states = tf.concat([past_states, cur_states, future_states], 1)
+        gt_future_states = tf.concat([past_states, cur_states, future_states], 1)
 
-    # Get state validity
-    past_is_valid = decoded_example["state/past/valid"] > 0
-    current_is_valid = decoded_example["state/current/valid"] > 0
-    future_is_valid = decoded_example["state/future/valid"] > 0
-    gt_future_is_valid = tf.concat(
-        [past_is_valid, current_is_valid, future_is_valid], 1
-    )
+        # Get state validity
+        past_is_valid = decoded_example["state/past/valid"] > 0
+        current_is_valid = decoded_example["state/current/valid"] > 0
+        future_is_valid = decoded_example["state/future/valid"] > 0
+        gt_future_is_valid = tf.concat(
+            [past_is_valid, current_is_valid, future_is_valid], 1
+        )
 
-    # If a sample was not seen at all in the past,
-    # we declare the sample as invalid.
-    sample_is_valid = tf.reduce_any(tf.concat([past_is_valid, current_is_valid], 1), 1)
+        # If a sample was not seen at all in the past,
+        # we declare the sample as invalid.
+        sample_is_valid = tf.reduce_any(
+            tf.concat([past_is_valid, current_is_valid], 1), 1
+        )
 
-    inputs = {
-        "road_graph": road_graph,  # (30000, 8)
-        "sample_is_valid": sample_is_valid,  # (128,)
-        "gt_future_states": gt_future_states,  # (128, 91, 7)
-        "gt_future_is_valid": gt_future_is_valid,  # (128, 91)
-        "object_type": decoded_example["state/type"],  # (128,)
-        "tracks_to_predict": decoded_example["state/tracks_to_predict"] > 0,  # (128,)
-    }
-    return inputs
+        inputs = {
+            "road_graph": road_graph,  # (30000, 8)
+            "sample_is_valid": sample_is_valid,  # (128,)
+            "gt_future_states": gt_future_states,  # (128, 91, 8)
+            "gt_future_is_valid": gt_future_is_valid,  # (128, 91)
+            "object_type": decoded_example["state/type"],  # (128,)
+            "tracks_to_predict": decoded_example["state/tracks_to_predict"] > 0,
+        }
+        return inputs
+
+    return parse_example
 
 
 def parse_example_masked(example):
