@@ -181,7 +181,6 @@ def parser_factory(use_center=True):
             )
         else:
             center = tf.zeros((3,))
-        print(use_center, center)
 
         # Agent states
         past_states = tf.stack(

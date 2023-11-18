@@ -29,13 +29,13 @@ def main():
         "-r", "--tf_records", help="Number of TFRecords to use (default: 2)", default=2
     )
     parser.add_argument(
-        "-p", "--use_performers", help="Use performers (default: True)", default=True
+        "-p", "--use_performers", help="Use performers (default: True)", default="True"
     )
     parser.add_argument(
         "-c",
         "--use_center",
         help="Center everything around AV (default: True)",
-        default=True,
+        default="True",
     )
     args = parser.parse_args()
     epochs = int(args.epochs)
@@ -66,6 +66,7 @@ def main():
     parse_example = parser_factory(use_center=use_center)
     dataset = load_dataset(tfrecords=tf_records)
     dataset = dataset.map(parse_example)
+    dataset = dataset.shuffle(tf_records * 1000)
     dataset = dataset.batch(batch_size)
 
     for epoch in range(epochs):
@@ -74,11 +75,11 @@ def main():
         # Iterate over the batches of the dataset.
         losses = []
         for step, batch in enumerate(dataset):
-            start_time = time.time()
+            # start_time = time.time()
             loss_value = train_step(
                 model, loss_fn, optimizer, batch, metrics_config, motion_metrics
             )
-            print(step, loss_value, time.time() - start_time)
+            # print(step, loss_value, time.time() - start_time)
 
             # Log every 10 batches.
             losses.append(loss_value)

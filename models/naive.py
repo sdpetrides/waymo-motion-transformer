@@ -53,12 +53,12 @@ class NaiveModel(tf.keras.Model):
         B, T, H = obj_inputs.shape
 
         obj_inputs = obj_inputs[:, :10, :]  # only use past, not present for now
-        road_graph = road_graph[:, ::50, :]  # sample every 50 points
+        road_graph = road_graph[:, ::10, :]  # sample every 10 points
 
         # Scene Encoder
         start_time = time.time()
         scene_ouput = self.scene_encoder.call(obj_inputs, road_graph)
-        print(f"Encoder: {time.time() - start_time}")
+        # print(f"Encoder: {time.time() - start_time}")
 
         # Decoder Layers (auto-regressive)
         present = obj_inputs[:, -1, :]
@@ -85,7 +85,7 @@ class NaiveModel(tf.keras.Model):
                 ),
                 axis=1,
             )
-        print(f"Decoder: {time.time() - start_time}")
+        # print(f"Decoder: {time.time() - start_time}")
 
         return future_states
 
