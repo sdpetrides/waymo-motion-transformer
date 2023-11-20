@@ -13,41 +13,28 @@ def train_step(model, loss_fn, optimizer, inputs, metrics_config, motion_metrics
 
         model_inputs = states_gt[:, :11, :]  # only use past and present
 
-        # Predict 80 steps
-        model_outputs = model(model_inputs, road_graph, training=True)
+        # Predict future steps
+        model_outputs = model(
+            (model_inputs, road_graph, tf.ones((B, 40, 1024))), training=True
+        )
+        pred_trajectory = tf.reshape(model_outputs, (B, 41, obj, V_obj))
 
-        if False:
-            # Latent Loss Approach
-            loss_value = 0
-            for i in [2, 4, 8, 16, 32]:
-                gt_state = states_gt[:, 11 + i - 1, :]
-                pred_state = model_outputs[:, i, :]
-                latent_loss_pred = model.latent_loss_layer(pred_state)
-                latent_loss_gt = model.latent_loss_layer(gt_state)
-                # Weighted loss value
-                loss_value += (1 / (i + 1)) * loss_fn(latent_loss_gt, latent_loss_pred)
-            print(f"Latent loss pred: {latent_loss_pred.shape}")
-            print(f"Latent loss gt: {latent_loss_gt.shape}")
+        # Set training target.
+        prediction_start = metrics_config.track_history_samples + 1
 
-        else:
-            pred_trajectory = tf.reshape(model_outputs, (B, T - 10, obj, V_obj))
+        gt_trajectory = tf.transpose(
+            inputs["gt_future_states"], perm=[0, 2, 1, 3]
+        )  # B, obj, T, V_obj
 
-            # Set training target.
-            prediction_start = metrics_config.track_history_samples + 1
+        pred_trajectory = pred_trajectory[:, 1:, ...]
+        gt_targets = gt_trajectory[:, prediction_start::2, ...]
 
-            gt_trajectory = tf.transpose(
-                inputs["gt_future_states"], perm=[0, 2, 1, 3]
-            )  # B, obj, T, V_obj
+        weights = tf.cast(
+            inputs["gt_future_is_valid"][..., prediction_start::2], tf.float32
+        ) * tf.cast(inputs["tracks_to_predict"][..., tf.newaxis], tf.float32)
+        weights = tf.transpose(weights, perm=[0, 2, 1])
 
-            pred_trajectory = pred_trajectory[:, 1:, ...]
-            gt_targets = gt_trajectory[:, prediction_start:, ...]
-
-            weights = tf.cast(
-                inputs["gt_future_is_valid"][..., prediction_start:], tf.float32
-            ) * tf.cast(inputs["tracks_to_predict"][..., tf.newaxis], tf.float32)
-            weights = tf.transpose(weights, perm=[0, 2, 1])
-
-            loss_value = loss_fn(gt_targets, pred_trajectory, sample_weight=weights)
+        loss_value = loss_fn(gt_targets, pred_trajectory, sample_weight=weights)
 
     grads = tape.gradient(loss_value, model.trainable_weights)
     optimizer.apply_gradients(zip(grads, model.trainable_weights))

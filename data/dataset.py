@@ -252,7 +252,7 @@ def parser_factory(use_center=True):
         )
 
         inputs = {
-            "road_graph": road_graph,  # (30000, 8)
+            "road_graph": road_graph,  # (30000, 11)
             "sample_is_valid": sample_is_valid,  # (128,)
             "gt_future_states": gt_future_states,  # (128, 91, 8)
             "gt_future_is_valid": gt_future_is_valid,  # (128, 91)

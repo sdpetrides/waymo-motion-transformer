@@ -16,6 +16,8 @@ class NaiveModel(tf.keras.Model):
         num_agents_per_scenario,
         num_state_steps,
         num_future_steps,
+        future_step_interval=2,
+        rg_interval=10,
         use_performers=True,
         training=True,
     ):
@@ -23,6 +25,8 @@ class NaiveModel(tf.keras.Model):
         self._num_agents_per_scenario = num_agents_per_scenario
         self._num_state_steps = num_state_steps
         self._num_future_steps = num_future_steps
+        self._future_step_interval = future_step_interval
+        self._rg_interval = rg_interval
         self.use_performers = use_performers
         self.training = training
 
@@ -36,45 +40,40 @@ class NaiveModel(tf.keras.Model):
             self._num_agents_per_scenario,
             self._num_state_steps - 1,  # past only
             self._num_future_steps,
+            self._future_step_interval,
             self.use_performers,
             self.training,
         )
-        self.latent_loss_layer = tf.keras.layers.Dense(
-            32,
-            activation=None,
-            trainable=False,
-        )
 
-    def call(self, obj_inputs, road_graph):
+    def call(self, inputs):
         """Forward pass of model.
 
         B is batch dim, T is temporal dim, H is the hidden dim.
         """
+        obj_inputs, road_graph, future_states_base = inputs
         B, T, H = obj_inputs.shape
+        T_decoder = int(self._num_future_steps / self._future_step_interval)
 
-        obj_inputs = obj_inputs[:, :10, :]  # only use past, not present for now
-        road_graph = road_graph[:, ::10, :]  # sample every 10 points
+        obj_inputs = obj_inputs[:, :10, :]
+        road_graph = road_graph[:, :: self._rg_interval, :]  # sample every 10 points
 
         # Scene Encoder
-        start_time = time.time()
-        scene_ouput = self.scene_encoder.call(obj_inputs, road_graph)
+        # start_time = time.time()
+        scene_output = self.scene_encoder.call(obj_inputs, road_graph)
         # print(f"Encoder: {time.time() - start_time}")
 
         # Decoder Layers (auto-regressive)
         present = obj_inputs[:, -1, :]
-        future_states = tf.ones(
-            (present.shape[0], self._num_future_steps, present.shape[-1])
-        )
         future_states = tf.concat(
-            (future_states, tf.expand_dims(present, axis=1)), axis=1
+            (future_states_base, tf.expand_dims(present, axis=1)), axis=1
         )
-        start_time = time.time()
-        for i in range(1, self._num_future_steps + 1):
+        # start_time = time.time()
+        for i in range(1, T_decoder + 1):
             # print(f"Generating step {i}")
-            causal_mask = self.create_mask(B, self._num_future_steps, i)
+            causal_mask = self.create_mask(B, T_decoder + 1, i)
             next_pred = self.motion_decoder.call(
-                future_states[:, :-1, :],  # never actually send in last future step
-                scene_ouput,
+                future_states,
+                scene_output,
                 causal_mask,
             )
             future_states = tf.concat(
@@ -94,6 +93,8 @@ class NaiveModel(tf.keras.Model):
 
     @staticmethod
     def create_mask(batch_size, matrix_size, k):
+        if batch_size == None:
+            batch_size = 1
         if k < 1 or k > matrix_size:
             raise ValueError(f"k should be within the [1, {matrix_size}] range")
         lower_diag = tf.linalg.band_part(

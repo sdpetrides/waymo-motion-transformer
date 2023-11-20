@@ -1,13 +1,19 @@
 import os
+import sys
 import time
 import argparse
 
+import datetime as dt
+
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
 import tensorflow as tf
+import numpy as np
 
 tf.random.set_seed(16)
 
-print("GPUs Available: ", tf.config.list_physical_devices("GPU"))
+# print("GPUs Available: ", tf.config.list_physical_devices("GPU"))
 print("Num GPUs Available: ", len(tf.config.list_physical_devices("GPU")))
 
 from waymo_open_dataset.metrics.python import config_util_py as config_util
@@ -51,24 +57,33 @@ def main():
     print(f"use_performers: {use_performers}")
     print(f"use_center: {use_center}")
 
+    metrics_config = default_metrics_config()
+    motion_metrics = MotionMetrics(metrics_config)
+    metric_names = config_util.get_breakdown_names_from_motion_config(metrics_config)
+
+    buffer_size = tf_records * 1000
+    global_batch_size = batch_size
+    print(f"global batch size {global_batch_size}")
+
+    parse_example = parser_factory(use_center=use_center)
+    dataset = load_dataset(tfrecords=tf_records)
+    dataset = dataset.map(parse_example)
+    dataset = dataset.shuffle(buffer_size)
+    dataset = dataset.batch(global_batch_size)
+
     model = NaiveModel(
         num_agents_per_scenario=128,
         num_state_steps=11,
         num_future_steps=80,
         use_performers=use_performers,
     )
-    optimizer = tf.keras.optimizers.Adam(learning_rate=2e-4)
     loss_fn = tf.keras.losses.MeanSquaredError()
-    metrics_config = default_metrics_config()
-    motion_metrics = MotionMetrics(metrics_config)
-    metric_names = config_util.get_breakdown_names_from_motion_config(metrics_config)
+    optimizer = tf.keras.optimizers.Adam(learning_rate=2e-4, weight_decay=0.9999)
 
-    parse_example = parser_factory(use_center=use_center)
-    dataset = load_dataset(tfrecords=tf_records)
-    dataset = dataset.map(parse_example)
-    dataset = dataset.shuffle(tf_records * 1000)
-    dataset = dataset.batch(batch_size)
+    model.build(input_shape=[(None, 11, 1024), (None, 30000, 11), (None, 40, 1024)])
+    model.summary(expand_nested=True, show_trainable=True)
 
+    epoch_losses = []
     for epoch in range(epochs):
         print(f"Start of epoch {epoch}")
 
@@ -80,9 +95,9 @@ def main():
                 model, loss_fn, optimizer, batch, metrics_config, motion_metrics
             )
             # print(step, loss_value, time.time() - start_time)
+            losses.append(loss_value)
 
             # Log every 10 batches.
-            losses.append(loss_value)
             if step % 10 == 9:
                 print(
                     "Avg Training loss for last 10 steps %4d: %12.3f"
@@ -90,14 +105,20 @@ def main():
                 )
                 # print("Seen so far: %d samples" % ((step + 1) * batch_size))
 
-        # # TODO: Deal with metrics
-        # # Display metrics at the end of each epoch.
-        # train_metric_values = motion_metrics.result()
-        # for i, m in enumerate(
-        #     ["min_ade", "min_fde", "miss_rate", "overlap_rate", "map"]
-        # ):
-        #     for j, n in enumerate(metric_names):
-        #         print("{}/{}: {}".format(m, n, train_metric_values[i, j]))
+        print(f"Epoch {epoch}: avg loss: {sum(losses) / len(losses)}")
+        epoch_losses.append(sum(losses) / len(losses))
+
+    file_path = f"{dt.datetime.now().strftime('%Y-%m-%d_%H:%M')}_loss.npy"
+    np.save(file_path, np.array(epoch_losses))
+
+    # # TODO: Deal with metrics
+    # # Display metrics at the end of each epoch.
+    # train_metric_values = motion_metrics.result()
+    # for i, m in enumerate(
+    #     ["min_ade", "min_fde", "miss_rate", "overlap_rate", "map"]
+    # ):
+    #     for j, n in enumerate(metric_names):
+    #         print("{}/{}: {}".format(m, n, train_metric_values[i, j]))
 
 
 if __name__ == "__main__":

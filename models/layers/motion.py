@@ -14,6 +14,7 @@ class MotionDecoder(tf.keras.layers.Layer):
         num_agents_per_scenario,
         num_state_steps,
         num_future_steps,
+        future_step_interval,
         use_performers=True,
         training=True,
     ):
@@ -24,6 +25,8 @@ class MotionDecoder(tf.keras.layers.Layer):
         self._num_agents_per_scenario = num_agents_per_scenario
         self._num_state_steps = num_state_steps
         self._num_future_steps = num_future_steps
+        self._future_step_interval = future_step_interval
+        self.T = int(self._num_future_steps / self._future_step_interval) + 1
         self.positional_encoder = keras_nlp.layers.PositionEmbedding(
             self._num_future_steps, initializer="glorot_uniform"
         )
@@ -33,6 +36,7 @@ class MotionDecoder(tf.keras.layers.Layer):
             pool_size=4, data_format="channels_first"
         )
         self.qkv_expander = tf.keras.layers.Dense(768 * 3, activation="relu")
+        self.flatten = tf.keras.layers.Reshape((self.T * 192,))
         self.masked_attn_blocks = []
         self.cross_attn_blocks = []
         self.fc_blocks = []
@@ -116,6 +120,6 @@ class MotionDecoder(tf.keras.layers.Layer):
             # Add & Norm (third time)
             x = self.layer_norm_block_3[i](norm_output + x)
         x = self.pool(x)  # B, T, 768 -> B, T, 192
-        x = tf.reshape(x, (x.shape[0], x.shape[1] * x.shape[2]))
-        x = self.dense2(x)  # B, 80 * 192 -> B, T, 1024
+        x = self.flatten(x)  # B, T, 192 -> B, T * 192
+        x = self.dense2(x)  # B, T * 192 -> B, 1024
         return x

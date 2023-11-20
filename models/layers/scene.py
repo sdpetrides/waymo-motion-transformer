@@ -26,12 +26,12 @@ class SceneEncoder(tf.keras.layers.Layer):
         self.training = training
         self._num_agents_per_scenario = num_agents_per_scenario
         self._num_state_steps = num_state_steps
+        self.rg_H = 16
+        self.rg_out = 1024
         self.positional_encoder = keras_nlp.layers.PositionEmbedding(
             self._num_state_steps, initializer="glorot_uniform"
         )
         # Road Graph Encoder
-        self.rg_H = 16
-        self.rg_out = 1024
         self.rg_dense = tf.keras.layers.Dense(self.rg_H, activation="relu")
         self.rg_qkv_expander = tf.keras.layers.Dense(self.rg_H * 3, activation="relu")
         self.rg_attn_blocks = []

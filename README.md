@@ -32,6 +32,7 @@ Possible Directions
 - 2. Switch to trajectory-based loss function
 - 3. Use number of agents as sequence and time as hidden dim
 - 4. Distributed training
+- 5. Warm up learning rate
 
 ## Links
 
