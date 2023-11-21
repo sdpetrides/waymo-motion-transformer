@@ -1,7 +1,11 @@
 import tensorflow as tf
 
+import wandb
 
-def train_step(model, loss_fn, optimizer, inputs, metrics_config, motion_metrics):
+
+def train_step(
+    model, loss_fn, optimizer, inputs, metrics_config, motion_metrics, log_grad
+):
     """"""
     with tf.GradientTape() as tape:
         road_graph = inputs["road_graph"]  # B, T, V_rg
@@ -31,12 +35,25 @@ def train_step(model, loss_fn, optimizer, inputs, metrics_config, motion_metrics
 
         weights = tf.cast(
             inputs["gt_future_is_valid"][..., prediction_start::2], tf.float32
-        ) * tf.cast(inputs["tracks_to_predict"][..., tf.newaxis], tf.float32)
+        )  # * tf.cast(inputs["tracks_to_predict"][..., tf.newaxis], tf.float32)
         weights = tf.transpose(weights, perm=[0, 2, 1])
 
         loss_value = loss_fn(gt_targets, pred_trajectory, sample_weight=weights)
 
     grads = tape.gradient(loss_value, model.trainable_weights)
+    if log_grad:
+        wandb.log(
+            {
+                **{
+                    f"grad_{layer.name}": grad.numpy()
+                    for layer, grad in zip(model.layers, grads)
+                },
+                **{"loss": loss_value, "learning_rate": optimizer.learning_rate},
+            }
+        )
+    else:
+        wandb.log({"loss": loss_value, "learning_rate": optimizer.learning_rate})
+
     optimizer.apply_gradients(zip(grads, model.trainable_weights))
 
     # # [batch_size, num_agents, steps, 2] ->

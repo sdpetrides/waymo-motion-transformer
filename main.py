@@ -38,6 +38,7 @@ from data.dataset import load_dataset, parser_factory
 from models.naive import NaiveModel
 from metrics import default_metrics_config, MotionMetrics
 from train import train_step
+from optim import CosineDecay
 
 
 def main():
@@ -83,8 +84,8 @@ def main():
     global_batch_size = batch_size
     logger.info(f"global batch size {global_batch_size}")
 
-    learning_rate = 2e-4
-    weight_decay = 0.9999
+    learning_rate = 3e-3
+    global_clipnorm = 1.0
 
     parse_example = parser_factory(use_center=use_center)
     dataset = load_dataset(tfrecords=tf_records)
@@ -102,8 +103,15 @@ def main():
         use_performers=use_performers,
     )
     loss_fn = tf.keras.losses.MeanSquaredError()
+    learning_rate_schedule = CosineDecay(
+        initial_learning_rate=0.0,
+        decay_steps=10000,
+        warmup_target=learning_rate,
+        warmup_steps=1000,
+    )
     optimizer = tf.keras.optimizers.Adam(
-        learning_rate=learning_rate, weight_decay=weight_decay
+        learning_rate=learning_rate_schedule,
+        global_clipnorm=global_clipnorm,
     )
 
     model.build(input_shape=[(None, 11, 1024), (None, 30000, 11), (None, 40, 1024)])
@@ -113,6 +121,8 @@ def main():
         project="waymo-motion",
         config={
             "learning_rate": learning_rate,
+            "global_clipnorm": global_clipnorm,
+            "optim": "Adam",
             "epochs": epochs,
             "tf_records": tf_records,
             "batch_size": batch_size,
@@ -134,10 +144,15 @@ def main():
         for step, batch in enumerate(dataset):
             # start_time = time.time()
             loss_value = train_step(
-                model, loss_fn, optimizer, batch, metrics_config, motion_metrics
+                model,
+                loss_fn,
+                optimizer,
+                batch,
+                metrics_config,
+                motion_metrics,
+                log_grad=step % 5 == 0,
             )
             # logger.info(step, loss_value, time.time() - start_time)
-            wandb.log({"loss": loss_value, "learning_rate": optimizer.learning_rate})
             losses.append(loss_value)
 
             # Log every 10 batches.
