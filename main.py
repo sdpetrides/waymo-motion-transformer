@@ -2,6 +2,8 @@ import os
 import sys
 import time
 import argparse
+import logging
+import random
 
 import datetime as dt
 
@@ -11,10 +13,23 @@ os.environ["CUDA_VISIBLE_DEVICES"] = "0"
 import tensorflow as tf
 import numpy as np
 
-tf.random.set_seed(16)
+import wandb
 
-# print("GPUs Available: ", tf.config.list_physical_devices("GPU"))
-print("Num GPUs Available: ", len(tf.config.list_physical_devices("GPU")))
+run = dt.datetime.now().strftime("%Y-%m-%d_%H:%M")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[logging.FileHandler(f"{run}.log")],
+)
+logger = logging.getLogger(__name__)
+
+seed = 16
+
+tf.random.set_seed(seed)
+
+logger.info(f"Num GPUs Available: {len(tf.config.list_physical_devices('GPU'))}")
 
 from waymo_open_dataset.metrics.python import config_util_py as config_util
 
@@ -54,8 +69,8 @@ def main():
     )
     use_center = True if args.use_center.lower() in ("true", "t", "1") else False
 
-    print(f"use_performers: {use_performers}")
-    print(f"use_center: {use_center}")
+    logger.info(f"use_performers: {use_performers}")
+    logger.info(f"use_center: {use_center}")
 
     metrics_config = default_metrics_config()
     motion_metrics = MotionMetrics(metrics_config)
@@ -63,7 +78,10 @@ def main():
 
     buffer_size = tf_records * 1000
     global_batch_size = batch_size
-    print(f"global batch size {global_batch_size}")
+    logger.info(f"global batch size {global_batch_size}")
+
+    learning_rate = 2e-4
+    weight_decay = 0.9999
 
     parse_example = parser_factory(use_center=use_center)
     dataset = load_dataset(tfrecords=tf_records)
@@ -78,14 +96,29 @@ def main():
         use_performers=use_performers,
     )
     loss_fn = tf.keras.losses.MeanSquaredError()
-    optimizer = tf.keras.optimizers.Adam(learning_rate=2e-4, weight_decay=0.9999)
+    optimizer = tf.keras.optimizers.Adam(
+        learning_rate=learning_rate, weight_decay=weight_decay
+    )
 
     model.build(input_shape=[(None, 11, 1024), (None, 30000, 11), (None, 40, 1024)])
     model.summary(expand_nested=True, show_trainable=True)
 
+    wandb.init(
+        project="waymo-motion",
+        config={
+            "learning_rate": learning_rate,
+            "epochs": epochs,
+            "tf_records": tf_records,
+            "batch_size": batch_size,
+            "use_performers": use_performers,
+            "use_center": use_center,
+            "random_seed": seed,
+        },
+    )
+
     epoch_losses = []
     for epoch in range(epochs):
-        print(f"Start of epoch {epoch}")
+        logger.info(f"Start of epoch {epoch}")
 
         # Iterate over the batches of the dataset.
         losses = []
@@ -94,21 +127,25 @@ def main():
             loss_value = train_step(
                 model, loss_fn, optimizer, batch, metrics_config, motion_metrics
             )
-            # print(step, loss_value, time.time() - start_time)
+            # logger.info(step, loss_value, time.time() - start_time)
+            wandb.log({"loss": loss_value, "learning_rate": optimizer.learning_rate})
             losses.append(loss_value)
 
             # Log every 10 batches.
             if step % 10 == 9:
-                print(
+                logger.info(
                     "Avg Training loss for last 10 steps %4d: %12.3f"
                     % (step + 1, float(sum(losses[-10:]) / 10))
                 )
                 # print("Seen so far: %d samples" % ((step + 1) * batch_size))
 
-        print(f"Epoch {epoch}: avg loss: {sum(losses) / len(losses)}")
-        epoch_losses.append(sum(losses) / len(losses))
+        epoch_loss = sum(losses) / len(losses)
+        wandb.log({"epoch_loss": epoch_loss})
+        logger.info(f"Epoch {epoch}: avg loss: {epoch_loss}")
+        epoch_losses.append(epoch_loss)
 
-    file_path = f"{dt.datetime.now().strftime('%Y-%m-%d_%H:%M')}_loss.npy"
+    wandb.finish()
+    file_path = f"{run}_loss.npy"
     np.save(file_path, np.array(epoch_losses))
 
     # # TODO: Deal with metrics
