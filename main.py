@@ -68,6 +68,9 @@ def main():
         True if args.use_performers.lower() in ("true", "t", "1") else False
     )
     use_center = True if args.use_center.lower() in ("true", "t", "1") else False
+    N_rg_encoder = 2
+    N_obj_encoder = 2
+    N_decoder = 4
 
     logger.info(f"use_performers: {use_performers}")
     logger.info(f"use_center: {use_center}")
@@ -93,6 +96,9 @@ def main():
         num_agents_per_scenario=128,
         num_state_steps=11,
         num_future_steps=80,
+        N_rg_encoder=N_rg_encoder,
+        N_obj_encoder=N_obj_encoder,
+        N_decoder=N_decoder,
         use_performers=use_performers,
     )
     loss_fn = tf.keras.losses.MeanSquaredError()
@@ -113,6 +119,9 @@ def main():
             "use_performers": use_performers,
             "use_center": use_center,
             "random_seed": seed,
+            "N_rg_encoder": N_rg_encoder,
+            "N_obj_encoder": N_obj_encoder,
+            "N_decoder": N_decoder,
         },
     )
 

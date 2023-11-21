@@ -9,7 +9,7 @@ def train_step(model, loss_fn, optimizer, inputs, metrics_config, motion_metrics
         B, obj, T, V_obj = states.shape
 
         # Swap T and obj dims, merge with V to get H
-        states_gt = model.encode(states)  # B, T, H
+        states_gt = model.pre_encode(states)  # B, T, H
 
         model_inputs = states_gt[:, :11, :]  # only use past and present
 
