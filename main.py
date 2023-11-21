@@ -1,17 +1,25 @@
 import os
+import sys
 import time
 import argparse
 
-os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
-import tensorflow as tf
+import datetime as dt
 
-print("GPUs Available: ", tf.config.list_physical_devices("GPU"))
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "2"
+os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+
+import tensorflow as tf
+import numpy as np
+
+tf.random.set_seed(16)
+
+# print("GPUs Available: ", tf.config.list_physical_devices("GPU"))
 print("Num GPUs Available: ", len(tf.config.list_physical_devices("GPU")))
 
 from waymo_open_dataset.metrics.python import config_util_py as config_util
 
 
-from data.dataset import load_dataset, parse_dataset, parse_example_masked
+from data.dataset import load_dataset, parser_factory
 from models.naive import NaiveModel
 from metrics import default_metrics_config, MotionMetrics
 from train import train_step
@@ -26,40 +34,70 @@ def main():
     parser.add_argument(
         "-r", "--tf_records", help="Number of TFRecords to use (default: 2)", default=2
     )
+    parser.add_argument(
+        "-p", "--use_performers", help="Use performers (default: True)", default="True"
+    )
+    parser.add_argument(
+        "-c",
+        "--use_center",
+        help="Center everything around AV (default: True)",
+        default="True",
+    )
     args = parser.parse_args()
     epochs = int(args.epochs)
     batch_size = int(args.batch_size)
     tf_records = int(args.tf_records)
     if tf_records == 0 or tf_records > 1000:
         tf_records = 1
-
-    dataset = load_dataset(tfrecords=tf_records)
-    model = NaiveModel(
-        num_agents_per_scenario=128, num_state_steps=11, num_future_steps=80
+    use_performers = (
+        True if args.use_performers.lower() in ("true", "t", "1") else False
     )
-    optimizer = tf.keras.optimizers.Adam(learning_rate=3e-2)
-    loss_fn = tf.keras.losses.MeanSquaredError()
+    use_center = True if args.use_center.lower() in ("true", "t", "1") else False
+
+    print(f"use_performers: {use_performers}")
+    print(f"use_center: {use_center}")
+
     metrics_config = default_metrics_config()
     motion_metrics = MotionMetrics(metrics_config)
     metric_names = config_util.get_breakdown_names_from_motion_config(metrics_config)
 
-    dataset = dataset.map(parse_example_masked)
-    dataset = dataset.batch(batch_size)
+    buffer_size = tf_records * 1000
+    global_batch_size = batch_size
+    print(f"global batch size {global_batch_size}")
 
+    parse_example = parser_factory(use_center=use_center)
+    dataset = load_dataset(tfrecords=tf_records)
+    dataset = dataset.map(parse_example)
+    dataset = dataset.shuffle(buffer_size)
+    dataset = dataset.batch(global_batch_size)
+
+    model = NaiveModel(
+        num_agents_per_scenario=128,
+        num_state_steps=11,
+        num_future_steps=80,
+        use_performers=use_performers,
+    )
+    loss_fn = tf.keras.losses.MeanSquaredError()
+    optimizer = tf.keras.optimizers.Adam(learning_rate=2e-4, weight_decay=0.9999)
+
+    model.build(input_shape=[(None, 11, 1024), (None, 30000, 11), (None, 40, 1024)])
+    model.summary(expand_nested=True, show_trainable=True)
+
+    epoch_losses = []
     for epoch in range(epochs):
         print(f"Start of epoch {epoch}")
-        # TODO: timing
-        # start_time = time.time()
 
         # Iterate over the batches of the dataset.
         losses = []
         for step, batch in enumerate(dataset):
+            # start_time = time.time()
             loss_value = train_step(
                 model, loss_fn, optimizer, batch, metrics_config, motion_metrics
             )
+            # print(step, loss_value, time.time() - start_time)
+            losses.append(loss_value)
 
             # Log every 10 batches.
-            losses.append(loss_value)
             if step % 10 == 9:
                 print(
                     "Avg Training loss for last 10 steps %4d: %12.3f"
@@ -67,14 +105,20 @@ def main():
                 )
                 # print("Seen so far: %d samples" % ((step + 1) * batch_size))
 
-        # TODO: Deal with metrics
-        # Display metrics at the end of each epoch.
-        train_metric_values = motion_metrics.result()
-        for i, m in enumerate(
-            ["min_ade", "min_fde", "miss_rate", "overlap_rate", "map"]
-        ):
-            for j, n in enumerate(metric_names):
-                print("{}/{}: {}".format(m, n, train_metric_values[i, j]))
+        print(f"Epoch {epoch}: avg loss: {sum(losses) / len(losses)}")
+        epoch_losses.append(sum(losses) / len(losses))
+
+    file_path = f"{dt.datetime.now().strftime('%Y-%m-%d_%H:%M')}_loss.npy"
+    np.save(file_path, np.array(epoch_losses))
+
+    # # TODO: Deal with metrics
+    # # Display metrics at the end of each epoch.
+    # train_metric_values = motion_metrics.result()
+    # for i, m in enumerate(
+    #     ["min_ade", "min_fde", "miss_rate", "overlap_rate", "map"]
+    # ):
+    #     for j, n in enumerate(metric_names):
+    #         print("{}/{}: {}".format(m, n, train_metric_values[i, j]))
 
 
 if __name__ == "__main__":

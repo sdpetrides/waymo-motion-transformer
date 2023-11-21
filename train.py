@@ -1,54 +1,43 @@
 import tensorflow as tf
 
-# TODO: some kind of masked training
-
 
 def train_step(model, loss_fn, optimizer, inputs, metrics_config, motion_metrics):
     """"""
     with tf.GradientTape() as tape:
-        states = inputs["all_states_masked"]  # B, obj, T, V
-        is_valid = inputs["gt_future_is_valid"]
-        slice_index = inputs["masked_index"]
-        all_states_gt = inputs["gt_future_states"]  # B, obj, T, V
+        road_graph = inputs["road_graph"]  # B, T, V_rg
+        states = inputs["gt_future_states"]  # B, obj, T, V_obj
+        B, obj, T, V_obj = states.shape
 
-        model_inputs = model.encode(states, is_valid)  # B, T, H
-        states_gt = model.encode(all_states_gt, is_valid)  # B, T, H
+        # Swap T and obj dims, merge with V to get H
+        states_gt = model.encode(states)  # B, T, H
 
-        model_inputs = model_inputs[:, :11, :]  # only use past and present
+        model_inputs = states_gt[:, :11, :]  # only use past and present
 
-        # Predict 80 steps
-        model_outputs = model(model_inputs, training=True)
-
-        loss_value = 0
-        for i in [2, 8, 32, 80]:
-            gt_state = states_gt[:, 11 + i - 1, :]
-            pred_state = model_outputs[:, i, :]
-            latent_loss_pred = model.latent_loss_layer(pred_state)
-            latent_loss_gt = model.latent_loss_layer(gt_state)
-            # Weighted loss value
-            loss_value += (1 / (i + 1)) * loss_fn(latent_loss_gt, latent_loss_pred)
-        # print(f"Latent loss pred: {latent_loss_pred.shape}")
-        # print(f"Latent loss gt: {latent_loss_gt.shape}")
+        # Predict future steps
+        model_outputs = model(
+            (model_inputs, road_graph, tf.ones((B, 40, 1024))), training=True
+        )
+        pred_trajectory = tf.reshape(model_outputs, (B, 41, obj, V_obj))
 
         # Set training target.
-        # prediction_start = metrics_config.track_history_samples + 1
+        prediction_start = metrics_config.track_history_samples + 1
 
-        # # [batch_size, num_agents, V]
-        # gt_trajectory = tf.transpose(inputs["gt_future_states"], perm=[0, 2, 1, 3])
-        # gt_targets = tf.gather(gt_trajectory, indices=slice_index, axis=1, batch_dims=1)
+        gt_trajectory = tf.transpose(
+            inputs["gt_future_states"], perm=[0, 2, 1, 3]
+        )  # B, obj, T, V_obj
 
-        # TODO: deal with validity
-        # # [batch_size, num_agents, steps]
-        # gt_is_valid = inputs["gt_future_is_valid"]
-        # # [batch_size, num_agents, steps]
-        # weights = tf.cast(
-        #     inputs["gt_future_is_valid"][..., prediction_start:], tf.float32
-        # ) * tf.cast(inputs["tracks_to_predict"][..., tf.newaxis], tf.float32)
+        pred_trajectory = pred_trajectory[:, 1:, ...]
+        gt_targets = gt_trajectory[:, prediction_start::2, ...]
+
+        weights = tf.cast(
+            inputs["gt_future_is_valid"][..., prediction_start::2], tf.float32
+        ) * tf.cast(inputs["tracks_to_predict"][..., tf.newaxis], tf.float32)
+        weights = tf.transpose(weights, perm=[0, 2, 1])
+
+        loss_value = loss_fn(gt_targets, pred_trajectory, sample_weight=weights)
 
     grads = tape.gradient(loss_value, model.trainable_weights)
     optimizer.apply_gradients(zip(grads, model.trainable_weights))
-
-    # TODO: deal with metrics and trajectories
 
     # # [batch_size, num_agents, steps, 2] ->
     # # [batch_size, num_agents, 1, 1, steps, 2].
@@ -65,6 +54,8 @@ def train_step(model, loss_fn, optimizer, inputs, metrics_config, motion_metrics
     # # [batch_size, num_agents].
     # batch_size = tf.shape(inputs["tracks_to_predict"])[0]
     # num_samples = tf.shape(inputs["tracks_to_predict"])[1]
+
+    # gt_is_valid = inputs["gt_future_is_valid"]  # B, obj, T
 
     # pred_gt_indices = tf.range(num_samples, dtype=tf.int64)
     # # [batch_size, num_agents, 1].
