@@ -379,6 +379,7 @@ class Attention(tf.keras.layers.Layer):
         causal=False,
         projection_matrix_type=None,
         nb_random_features=0,
+        **kwargs
     ):
         """Initialize Attention.
 
@@ -402,7 +403,7 @@ class Attention(tf.keras.layers.Layer):
                 )
             )
 
-        super(Attention, self).__init__()
+        super(Attention, self).__init__(**kwargs)
         self.hidden_size = hidden_size
         self.num_heads = num_heads
         self.attention_dropout = attention_dropout

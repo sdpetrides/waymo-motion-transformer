@@ -43,20 +43,25 @@ class NaiveModel(tf.keras.Model):
         # Road Graph Encoder
         self.rg_H = 16
         self.rg_out = 1024
-        self.rg_dense = tf.keras.layers.Dense(self.rg_H, activation="relu")
-        self.rg_qkv_expander = tf.keras.layers.Dense(self.rg_H * 3, activation="relu")
+        self.rg_dense = tf.keras.layers.Dense(
+            self.rg_H, activation="relu", name="road_graph_dense"
+        )
+        self.rg_qkv_expander = tf.keras.layers.Dense(
+            self.rg_H * 3, activation="relu", name="road_graph_qkv_expander"
+        )
         self.rg_attn_blocks = []
         self.rg_fc_blocks = []
         self.rg_layer_norm_block_1 = []
         self.rg_layer_norm_block_2 = []
         self.rg_fc_out = tf.keras.layers.Dense(self.rg_out, activation="relu")
-        for _ in range(self.N_rg_encoder):
+        for i in range(self.N_rg_encoder):
             if self.use_performers:
                 self.rg_attn_blocks.append(
                     FastSelfAttention(
                         hidden_size=self.rg_H,
                         num_heads=4,
                         attention_dropout=0.2,
+                        name=f"road_graph_block_{i}_attn",
                     )
                 )
             else:
@@ -69,16 +74,23 @@ class NaiveModel(tf.keras.Model):
                         use_bias=True,
                         output_shape=None,
                         attention_axes=(1, 2),
+                        name=f"road_graph_block_{i}_attn",
                     )
                 )
             self.rg_layer_norm_block_1.append(
-                tf.keras.layers.LayerNormalization(axis=-1)
+                tf.keras.layers.LayerNormalization(
+                    axis=-1, name=f"road_graph_block_{i}_norm_1"
+                )
             )
             self.rg_layer_norm_block_2.append(
-                tf.keras.layers.LayerNormalization(axis=-1)
+                tf.keras.layers.LayerNormalization(
+                    axis=-1, name=f"road_graph_block_{i}_norm_2"
+                )
             )
             self.rg_fc_blocks.append(
-                tf.keras.layers.Dense(self.rg_H, activation="relu")
+                tf.keras.layers.Dense(
+                    self.rg_H, activation="relu", name=f"road_graph_block_{i}_dense"
+                )
             )
 
         # Agent Encoder
@@ -92,13 +104,14 @@ class NaiveModel(tf.keras.Model):
         self.obj_fc_blocks = []
         self.obj_layer_norm_block_1 = []
         self.obj_layer_norm_block_2 = []
-        for _ in range(self.N_obj_encoder):
+        for i in range(self.N_obj_encoder):
             if self.use_performers:
                 self.obj_attn_blocks.append(
                     FastCrossAttention(
                         hidden_size=self.obj_H,
                         num_heads=16,
                         attention_dropout=0.2,
+                        name=f"obj_{i}_attn",
                     )
                 )
             else:
@@ -111,30 +124,40 @@ class NaiveModel(tf.keras.Model):
                         use_bias=True,
                         output_shape=None,
                         attention_axes=(1, 2),
+                        name=f"obj_{i}_attn",
                     )
                 )
             self.obj_layer_norm_block_1.append(
-                tf.keras.layers.LayerNormalization(axis=-1)
+                tf.keras.layers.LayerNormalization(axis=-1, name=f"obj_{i}_norm_1"),
             )
             self.obj_layer_norm_block_2.append(
-                tf.keras.layers.LayerNormalization(axis=-1)
+                tf.keras.layers.LayerNormalization(axis=-1, name=f"obj_{i}_norm_2"),
             )
             self.obj_fc_blocks.append(
-                tf.keras.layers.Dense(self.obj_H, activation="relu")
+                tf.keras.layers.Dense(
+                    self.obj_H, activation="relu", name=f"obj_{i}_dense"
+                )
             )
 
     def init_decoder(self):
-        self.N_decoder = 3  # number of decoder blocks
         self.T = int(self._num_future_steps / self._future_step_interval) + 1
         self.mtn_positional_encoder = keras_nlp.layers.PositionEmbedding(
-            self._num_future_steps, initializer="glorot_uniform"
+            self._num_future_steps,
+            initializer="glorot_uniform",
+            name="motion_pos_encoding",
         )
-        self.mtn_dense1 = tf.keras.layers.Dense(768, activation="relu")
-        self.mtn_dense2 = tf.keras.layers.Dense(1024, activation="relu")
+        self.mtn_dense1 = tf.keras.layers.Dense(
+            768, activation="relu", name="motion_dense_input"
+        )
+        self.mtn_dense2 = tf.keras.layers.Dense(
+            1024, activation="relu", name="motion_dense_final"
+        )
         self.mtn_pool = tf.keras.layers.MaxPooling1D(
             pool_size=4, data_format="channels_first"
         )
-        self.mtn_qkv_expander = tf.keras.layers.Dense(768 * 3, activation="relu")
+        self.mtn_qkv_expander = tf.keras.layers.Dense(
+            768 * 3, activation="relu", name="motion_qkv_expander"
+        )
         self.mtn_flatten = tf.keras.layers.Reshape((self.T * 192,))
         self.mtn_masked_attn_blocks = []
         self.mtn_cross_attn_blocks = []
@@ -142,7 +165,7 @@ class NaiveModel(tf.keras.Model):
         self.mtn_layer_norm_block_1 = []
         self.mtn_layer_norm_block_2 = []
         self.mtn_layer_norm_block_3 = []
-        for _ in range(self.N_decoder):
+        for i in range(self.N_decoder):
             self.mtn_masked_attn_blocks.append(
                 tf.keras.layers.MultiHeadAttention(
                     12,
@@ -152,6 +175,7 @@ class NaiveModel(tf.keras.Model):
                     use_bias=True,
                     output_shape=None,
                     attention_axes=None,  # was getting expand_dim error so switched back to None
+                    name=f"motion_{i}_masked_attn",
                 )
             )
             if self.use_performers:
@@ -160,6 +184,7 @@ class NaiveModel(tf.keras.Model):
                         hidden_size=768,
                         num_heads=12,
                         attention_dropout=0.2,
+                        name=f"motion_{i}_cross_attn",
                     )
                 )
             else:
@@ -172,18 +197,21 @@ class NaiveModel(tf.keras.Model):
                         use_bias=True,
                         output_shape=None,
                         attention_axes=(1, 2),
+                        name=f"motion_{i}_cross_attn",
                     )
                 )
             self.mtn_layer_norm_block_1.append(
-                tf.keras.layers.LayerNormalization(axis=-1)
+                tf.keras.layers.LayerNormalization(axis=-1, name=f"motion_{i}_norm_1"),
             )
             self.mtn_layer_norm_block_2.append(
-                tf.keras.layers.LayerNormalization(axis=-1)
+                tf.keras.layers.LayerNormalization(axis=-1, name=f"motion_{i}_norm_2"),
             )
             self.mtn_layer_norm_block_3.append(
-                tf.keras.layers.LayerNormalization(axis=-1)
+                tf.keras.layers.LayerNormalization(axis=-1, name=f"motion_{i}_norm_3"),
             )
-            self.mtn_fc_blocks.append(tf.keras.layers.Dense(768, activation="relu"))
+            self.mtn_fc_blocks.append(
+                tf.keras.layers.Dense(768, activation="relu", name=f"motion_{i}_dense")
+            )
 
     def call(self, inputs):
         """Forward pass of model.
